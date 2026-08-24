@@ -1,0 +1,31 @@
+"use client";
+import { useEffect, useRef } from "react";
+import * as THREE from "three";
+
+const planetVertex=`varying vec3 vPosition;varying vec3 vNormal;varying vec3 vView;void main(){vPosition=normalize(position);vNormal=normalize(normalMatrix*normal);vec4 mv=modelViewMatrix*vec4(position,1.);vView=-mv.xyz;gl_Position=projectionMatrix*mv;}`;
+const planetFragment=`uniform float uTime;varying vec3 vPosition;varying vec3 vNormal;varying vec3 vView;float hash3(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}float noise3(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(mix(hash3(i),hash3(i+vec3(1,0,0)),f.x),mix(hash3(i+vec3(0,1,0)),hash3(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash3(i+vec3(0,0,1)),hash3(i+vec3(1,0,1)),f.x),mix(hash3(i+vec3(0,1,1)),hash3(i+vec3(1,1,1)),f.x),f.y),f.z);}float fbm3(vec3 p){float v=0.,a=.5;for(int i=0;i<5;i++){v+=a*noise3(p);p=p*2.03+vec3(4.1,2.7,3.3);a*=.5;}return v;}void main(){vec3 p=vPosition*3.6+vec3(uTime*.008,0.,0.);float n=fbm3(p+vec3(fbm3(p*1.7)));float band=sin((vPosition.y+n*.12)*22.)*.5+.5;vec3 navy=vec3(.025,.13,.34),blue=vec3(.08,.43,.73),ice=vec3(.48,.78,.91);vec3 color=mix(navy,blue,smoothstep(.2,.8,n));color=mix(color,ice,smoothstep(.72,.98,band)*.22);vec3 light=normalize(vec3(-.5,.7,1.));float diffuse=max(dot(vNormal,light),0.);float fresnel=pow(1.-max(dot(normalize(vView),vNormal),0.),3.);color*=.32+diffuse*.86;color+=vec3(.16,.48,.72)*fresnel*.7;gl_FragColor=vec4(color,1.);}`;
+
+export default function OrbitScene(){
+  const mount=useRef<HTMLDivElement>(null);
+  useEffect(()=>{
+    if(!mount.current)return;const host=mount.current,scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(34,1,.1,80);camera.position.set(0,.15,16.6);
+    const renderer=new THREE.WebGLRenderer({alpha:true,antialias:true,powerPreference:"high-performance"});renderer.setPixelRatio(Math.min(devicePixelRatio,innerWidth<700?1.25:1.7));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.05;host.appendChild(renderer.domElement);
+    const rig=new THREE.Group();rig.rotation.set(-.12,-.28,.02);rig.scale.setScalar(.9);scene.add(rig);const uniforms={uTime:{value:0}};
+    rig.add(new THREE.Mesh(new THREE.SphereGeometry(2.28,96,96),new THREE.ShaderMaterial({vertexShader:planetVertex,fragmentShader:planetFragment,uniforms})));
+    rig.add(new THREE.Mesh(new THREE.SphereGeometry(2.36,64,64),new THREE.MeshBasicMaterial({color:0x77c7e7,transparent:true,opacity:.12,side:THREE.BackSide})));
+    const metal=new THREE.MeshStandardMaterial({color:0x345e7c,roughness:.22,metalness:.82,transparent:true,opacity:.78});
+    const ringA=new THREE.Mesh(new THREE.TorusGeometry(3.18,.018,8,260),metal);ringA.rotation.set(1.17,.14,.22);rig.add(ringA);
+    const ringB=new THREE.Mesh(new THREE.TorusGeometry(3.62,.011,8,260),metal.clone());ringB.rotation.set(1.3,-.22,-.44);rig.add(ringB);
+    const path=new THREE.EllipseCurve(0,0,4.1,1.42,0,Math.PI*2,false,.2),orbitGeo=new THREE.BufferGeometry().setFromPoints(path.getPoints(240).map(p=>new THREE.Vector3(p.x,p.y,0)));
+    const orbitLine=new THREE.LineLoop(orbitGeo,new THREE.LineBasicMaterial({color:0x5f8199,transparent:true,opacity:.34}));orbitLine.rotation.set(.32,.22,.05);rig.add(orbitLine);
+    const moon=new THREE.Mesh(new THREE.SphereGeometry(.22,32,32),new THREE.MeshStandardMaterial({color:0xc5d3da,roughness:.62}));rig.add(moon);
+    const probe=new THREE.Group(),body=new THREE.Mesh(new THREE.BoxGeometry(.28,.2,.18),new THREE.MeshStandardMaterial({color:0xf4f7f8,roughness:.28,metalness:.3})),panelMat=new THREE.MeshStandardMaterial({color:0x244e70,roughness:.28,metalness:.45});
+    const leftPanel=new THREE.Mesh(new THREE.BoxGeometry(.42,.015,.2),panelMat);leftPanel.position.x=-.36;const rightPanel=leftPanel.clone();rightPanel.position.x=.36;probe.add(body,leftPanel,rightPanel);probe.scale.setScalar(.72);rig.add(probe);
+    const dustGeo=new THREE.BufferGeometry(),pts=new Float32Array(780);for(let i=0;i<260;i++){pts[i*3]=(Math.random()-.5)*11;pts[i*3+1]=(Math.random()-.5)*8;pts[i*3+2]=(Math.random()-.5)*5;}dustGeo.setAttribute("position",new THREE.BufferAttribute(pts,3));const dust=new THREE.Points(dustGeo,new THREE.PointsMaterial({color:0x7297ad,size:.018,transparent:true,opacity:.45}));scene.add(dust);
+    scene.add(new THREE.HemisphereLight(0xd9f2ff,0x46647c,2.1));const key=new THREE.DirectionalLight(0xffffff,3.4);key.position.set(-4,6,7);scene.add(key);const rim=new THREE.PointLight(0x5bb9df,12,18);rim.position.set(4,-2,3);scene.add(rim);
+    const pointer=new THREE.Vector2(),smooth=new THREE.Vector2(),clock=new THREE.Clock();let frame=0,scrollY=window.scrollY;const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const resize=()=>{const w=host.clientWidth,h=host.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.position.z=innerWidth<850?18.2:16.6;camera.updateProjectionMatrix();},move=(e:PointerEvent)=>pointer.set((e.clientX/innerWidth-.5)*2,(e.clientY/innerHeight-.5)*2),scroll=()=>{scrollY=window.scrollY;};resize();addEventListener("resize",resize);addEventListener("pointermove",move,{passive:true});addEventListener("scroll",scroll,{passive:true});
+    const render=()=>{const t=clock.getElapsedTime(),s=Math.min(scrollY/innerHeight,1);smooth.lerp(pointer,.035);uniforms.uTime.value=t;rig.rotation.y=-.28+t*.035+smooth.x*.12+s*.16;rig.rotation.x=-.12-smooth.y*.07;rig.position.y=Math.sin(t*.55)*.05-s*.38;ringA.rotation.z=.22+t*.04;ringB.rotation.z=-.44-t*.025;moon.position.set(Math.cos(t*.42)*3.2,Math.sin(t*.42)*1.15,Math.sin(t*.42)*1.3);probe.position.set(Math.cos(-t*.31)*3.65,Math.sin(-t*.31)*1.35,Math.sin(-t*.31)*1.5);probe.rotation.y=t*.4;dust.rotation.y=t*.008;renderer.render(scene,camera);if(!reduced)frame=requestAnimationFrame(render);};render();
+    return()=>{cancelAnimationFrame(frame);removeEventListener("resize",resize);removeEventListener("pointermove",move);removeEventListener("scroll",scroll);renderer.dispose();dustGeo.dispose();orbitGeo.dispose();if(renderer.domElement.parentElement===host)host.removeChild(renderer.domElement);};
+  },[]);return <div className="orbit-scene" ref={mount} aria-label="Animated 3D exoplanet with orbital rings and satellite"/>;
+}
